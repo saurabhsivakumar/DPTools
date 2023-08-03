@@ -124,8 +124,8 @@ class DeepInput:
 
         n_train = int(np.ceil(len(self.energies) * 0.80)) # 80% train
         n_val = int(np.ceil(len(self.energies) * 0.90)) # 10% test, 10% val
-        if n_val - n_train < 10: # need min of 10 for validation set
-            n_train = n_val - 10
+        if n_val - n_train < 5: # need min of 10 for validation set
+            n_train = n_val - 5
             if n_train < 1:
                 raise ValueError(f"Need more images in {self.atoms_file}, \
                         {len(self.energies)} entries")
@@ -154,7 +154,9 @@ class DeepInput:
         np.save(file_name, vals)
 
     def write_types(self):
-        symbols = self.atoms.get_chemical_symbols()
+        num_to_sym = {v: k for k, v in atomic_numbers.items()}
+        #symbols = self.atoms.get_chemical_symbols()
+        symbols = [num_to_sym[n] for n in self._ref]
         if self.type_map is None:
             elements = np.unique(symbols)
             type_keys = {e: i for i, e in enumerate(elements)}
@@ -169,6 +171,70 @@ class DeepInput:
             np.savetxt(path, types, fmt="%.1i", newline=" ")
 
         self.type_map = {v: k for k, v in type_keys.items()}
+
+
+class SortedDeepInput(DeepInput): # lazy implementation of sorting for inconsistent indexing
+    def set_dataset(self):
+        positions = []
+        energies = []
+        forces = []
+        box = []
+        n = self.n
+
+        if self.atoms_file.endswith(".db"): # TODO: Rework this mess
+            with connect(self.atoms_file) as db:
+                for row in db.select():
+                    if not hasattr(self, "atoms"):
+                        self.atoms = row.toatoms() # saving for atom typing
+                    order = np.argsort(row.numbers)
+                    self._check_indexing(list(row.numbers[order]))
+                    positions.append(row.positions[order].flatten())
+                    forces.append(row.forces[order].flatten())
+                    energies.append(row.energy)
+                    box.append(row.cell.flatten())
+        else:
+            all_atoms = read(self.atoms_file, index=":")
+            for atoms in all_atoms:
+                if not hasattr(self, "atoms"):
+                    self.atoms = atoms.copy() # saving for atom typing
+                order = np.argsort(atoms.numbers)
+                self._check_indexing(list(atoms.numbers[order]))
+                positions.append(atoms.positions[order].flatten())
+                forces.append(atoms.get_forces(apply_constraint=0)[order].flatten())
+                energies.append(atoms.get_potential_energy())
+                box.append(atoms.cell.array.flatten())
+
+        positions = np.array(positions)
+        forces = np.array(forces)
+        energies = np.array(energies)
+        box = np.array(box)
+        positions, energies, forces, box = shuffle(positions, energies, forces, box)
+
+        if n is not None and n < len(energies):
+            positions = positions[:n]
+            energies = energies[:n]
+            forces = forces[:n]
+            box = box[:n]
+
+        self.positions = positions
+        self.energies = energies
+        self.forces = forces
+        self.box = box
+
+    def _check_indexing(self, numbers):
+        if not hasattr(self, "_ref"):
+            self._ref = sorted(list(self.atoms.numbers))
+            return
+        if self._ref != numbers:
+            if len(self._ref) != len(numbers):
+                err = f"Multiple unique systems detected for {self.atoms_file}."
+            else: # shouldn't need this if sorting works correctly but i'll leave it to be safe
+                err = f"Inconsistent indexing detected for {self.atoms_file}."
+            symbol_map = {v: k for k, v in atomic_numbers.items()}
+            ref_syms = [symbol_map[n] for n in self._ref]
+            syms = [symbol_map[n] for n in numbers]
+            err += f"\nConflicting system indices:\n\n{ref_syms}\n\n{syms}"
+            raise Exception(err)
 
 
 class DeepInputs:
@@ -201,6 +267,7 @@ class DeepInputs:
                  n=None,
                  in_json=None,
                  path="./data",
+                 sort=False,
                  ):
 
         self.path = path
@@ -227,7 +294,10 @@ class DeepInputs:
         self._json_file = in_json
 
         for db, a, sys in zip(db_names, atoms, system_names):
-            dpi = DeepInput(db, a, sys, self.type_map, append=append, n=n, path=path)
+            if sort:
+                dpi = SortedDeepInput(db, a, sys, self.type_map, append=append, n=n, path=path)
+            else:
+                dpi = DeepInput(db, a, sys, self.type_map, append=append, n=n, path=path)
 
         self.set_json()
         self.update_json()

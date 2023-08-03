@@ -64,3 +64,13 @@ gcmc:
   disp_freq: 5
   pre_opt: false
   pre_opt_mol: false
+nvt-md.900K:
+  type: nvt-md.900K
+  steps: 10000
+  timestep: 0.5
+  Ti: 900.0
+  Tf: 900.0
+  equil_steps: 1000
+  write_freq: 100
+  disp_freq: 100
+  pre_opt: false

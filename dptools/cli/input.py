@@ -29,6 +29,8 @@ class CLI(BaseCLI):
                 help="Specify path to dataset directory")
         self.parser.add_argument("-a", "--append", action="store_true",
                 help="Append to dataset if system already exists in dataset directory")
+        self.parser.add_argument("--sort", action="store_true",
+                help="Sort each image in each input by atomic symbol")
 
     def main(self, args):
         self.names = []
@@ -40,6 +42,7 @@ class CLI(BaseCLI):
                            path=path,
                            append=args.append,
                            n=args.n,
+                           sort=args.sort,
                            )
 
     def set_name(self, input_file):

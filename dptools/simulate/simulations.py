@@ -403,16 +403,6 @@ class GCMC(Simulation):
                          nsw=200,
                          )
             optmol.run()
-        else: # SPE to get molecule energy for gcmc if not optimizing
-            spemol = SPE(mol,
-                         self.graph,
-                         self.type_map,
-                         file_out=f"{self._mol}.traj",
-                         path=self.path,
-                         )
-            spemol.run()
-
-        self._e_mol = mol.get_potential_energy()
 
         molin = MolInput(mol, self.type_map, name=self._mol)
         molin.write() # write lammps molecule file
@@ -430,8 +420,7 @@ class GCMC(Simulation):
                 f"molecule mol mol.{self._mol}",
                 f"group {self._mol} molecule 0",
                 f"fix dpgcmc {self._mol} gcmc 1 {n_ex} {n_mc} 0 {seed()} "\
-                        f"{T} 0.0 {dmax} mol mol pressure {P} full_energy"\
-                        f" intra_energy {self._e_mol}",
+                        f"{T} 0.0 {dmax} mol mol pressure {P} full_energy",
                 f"thermo {disp_freq}",
                 f"run {equil_steps}",
                 f"dump 1 all custom {write_freq} gcmc.dump id type x y z",
@@ -444,6 +433,50 @@ class GCMC(Simulation):
         atoms = read_dump("gcmc.dump", self.type_map)
         write(self.file_out, atoms)
 
+class Diffusion(Simulation):
+    calc_type = "diffusion-md"
+
+    def setup(self, pre_opt=False, **kwargs):
+        if pre_opt:
+            self.pre_opt(200)
+        # group 'unconstrained' created by lammps_io.LammpsInput if constraints present
+        # need to specify only unconstrained atoms for velocity command
+        self._unconstrained = "unconstrained" if self.atoms[0].constraints else "all"
+
+        self.commands = self.get_commands(**kwargs)
+
+    def get_commands(self, steps=2000, timestep=0.5, Ti=298.0, Tf=298.0, equil_steps=100, write_freq=100, disp_freq=100, **kwargs): #CHANGE STEP SIZE HERE
+        self._warn_unused(**kwargs)
+        timestep = timestep * 1e-3 # convert to ps for lammps
+
+        commands = [
+            "group surface id 1:64", #Ag atoms are 64 in count ###
+            "group adsorbate subtract all surface",
+            f"thermo {disp_freq}",
+            f"variable\tdt\tequal\t0.5e-3",
+            "variable\ttdamp\tequal 100*${dt}",
+            "run_style verlet",
+            "timestep ${dt}",
+            f"velocity {self._unconstrained} create {Ti} {seed()} rot yes mom yes dist gaussian",
+            f"fix equil all nvt temp {Ti} {Ti} ${{tdamp}}",
+            f"run {equil_steps}",
+            "unfix equil",
+            f"fix nvt_prod all nvt temp {Ti} {Tf} ${{tdamp}}",
+            "compute msd unconstrained msd average yes com yes", #GROUP UNCONSTRAINED OR ADSORBATE (IF ADSORBATE set only AVERAGE yes)
+            "variable twopoint equal c_msd[4]/4/(step*${dt}+1.0e-6)",
+            "fix 9 unconstrained vector 10 c_msd[4]", #GROUP UNCONSTRAINED OR ADSORBATE OR ALL
+            "variable fitslope equal slope(f_9)/4/(10*${dt})",
+            "thermo_style custom step temp c_msd[4] v_twopoint v_fitslope etotal pe press pxx pyy pzz pxy pxz pyz lx ly lz vol",
+            f"dump 1 all custom {write_freq} nvt.dump id type x y z",
+            f"thermo {disp_freq}",
+            f"run {steps}"
+            ] #CHANGE GROUP TYPE IF SURFACE IS DIFFERENT
+        return commands
+
+    def process(self, file_out=None):
+        atoms = read_dump("nvt.dump", self.type_map)
+        write(self.file_out, atoms)
+        pass
 
 Simulations = {
     "spe": SPE,
@@ -454,4 +487,5 @@ Simulations = {
     "eos": EOS,
     "vib": Vib,
     "gcmc": GCMC,
+    "diffusion": Diffusion,
 }

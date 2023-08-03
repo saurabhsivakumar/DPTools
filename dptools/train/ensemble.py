@@ -57,7 +57,7 @@ class SampleConfigs:
         from deepmd.infer import DeepPot as DP
         pos = np.array([a.get_positions().flatten() for a in self.configs])
         cell = np.array([a.cell.array.flatten() for a in self.configs])
-        types = [self.type_map[a.symbol] for a in self.configs[0]]
+        types = np.array([self.type_map[a.symbol] for a in self.configs[0]])
 
         models = [DP(g) for g in self.graphs]
 

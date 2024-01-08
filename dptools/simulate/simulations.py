@@ -453,28 +453,32 @@ class Diffusion(Simulation):
             "group surface id 1:64", #Ag atoms are 64 in count ###
             "group adsorbate subtract all surface",
             f"thermo {disp_freq}",
-            f"variable\tdt\tequal\t0.5e-3",
+            f"variable\tdt\tequal\t{timestep}",
             "variable\ttdamp\tequal 100*${dt}",
             "run_style verlet",
             "timestep ${dt}",
-            f"velocity {self._unconstrained} create {Ti} {seed()} rot yes mom yes dist gaussian",
-            f"fix equil all nvt temp {Ti} {Ti} ${{tdamp}}",
+            f"velocity {self._unconstrained} create {Ti} {seed()} rot yes mom yes dist gaussian", #{self._unconstrained} instead of all
+            #f"fix prod all nve", #all
+            f"fix equil all nvt temp {Ti} {Ti} ${{tdamp}}", #fix equil all nvt temp {Ti} {Ti} ${{tdamp}}
             f"run {equil_steps}",
             "unfix equil",
-            f"fix nvt_prod all nvt temp {Ti} {Tf} ${{tdamp}}",
-            "compute msd unconstrained msd average yes com yes", #GROUP UNCONSTRAINED OR ADSORBATE (IF ADSORBATE set only AVERAGE yes)
+            f"fix prod all nve", #fix nvt_prod all nvt temp {Ti} {Tf} ${{tdamp}}
+            "compute msd adsorbate msd", #GROUP UNCONSTRAINED OR ADSORBATE  compute msd adsorbate msd is best
             "variable twopoint equal c_msd[4]/4/(step*${dt}+1.0e-6)",
-            "fix 9 unconstrained vector 10 c_msd[4]", #GROUP UNCONSTRAINED OR ADSORBATE OR ALL
+            "fix 9 adsorbate vector 10 c_msd[4]", #GROUP UNCONSTRAINED OR ADSORBATE OR ALL
             "variable fitslope equal slope(f_9)/4/(10*${dt})",
-            "thermo_style custom step temp c_msd[4] v_twopoint v_fitslope etotal pe press pxx pyy pzz pxy pxz pyz lx ly lz vol",
-            f"dump 1 all custom {write_freq} nvt.dump id type x y z",
+            "thermo_style custom step temp c_msd[1] c_msd[2] c_msd[3] c_msd[4] v_twopoint v_fitslope etotal pe press pxx pyy pzz pxy pxz pyz lx ly lz vol",
+            f"dump 1 all custom {write_freq} diffuse.dump id type x y z",
+            f"dump 2 all custom {write_freq} diffuse_uw.dump id type xu yu zu", #just unwrapped
+            f"dump 3 adsorbate custom {write_freq} diffuse_adsorbate.dump id type x y z xu yu zu",
+            f"dump 4 adsorbate custom {write_freq} diffuse_adsorbate_uw.dump id type xu yu zu", #just unwrapped
             f"thermo {disp_freq}",
             f"run {steps}"
             ] #CHANGE GROUP TYPE IF SURFACE IS DIFFERENT
         return commands
 
     def process(self, file_out=None):
-        atoms = read_dump("nvt.dump", self.type_map)
+        atoms = read_dump("diffuse.dump", self.type_map)
         write(self.file_out, atoms)
         pass
 

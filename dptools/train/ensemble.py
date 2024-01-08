@@ -57,16 +57,22 @@ class SampleConfigs:
         from deepmd.infer import DeepPot as DP
         pos = np.array([a.get_positions().flatten() for a in self.configs])
         cell = np.array([a.cell.array.flatten() for a in self.configs])
-        types = [self.type_map[a.symbol] for a in self.configs[0]]
+        types = np.array([self.type_map[a.symbol] for a in self.configs[0]])
 
         models = [DP(g) for g in self.graphs]
 
         try:
-            dev = calc_model_devi(pos, cell, types, models, nopbc=False)[:, 4]
+            dev = calc_model_devi(pos, cell, types, models, nopbc=False) #max devi forces
+            dev_f = dev[:, 4]
+            dev_e = dev[:, 7]
         except TypeError: # nopbc removed in later deepmd-kit versions
-            dev = calc_model_devi(pos, cell, types, models)[:, 4]
-        np.save("dev.npy", dev)
-        return dev
+            dev = calc_model_devi(pos, cell, types, models) #max devi forces
+            dev_f = dev[:, 4]
+            dev_e = dev[:, 7]
+        np.save("dev.npy", dev_f)
+        np.save("dev_e.npy", dev_e) #SAVE FOR LATER PLOTS etc.
+
+        return dev_f #Returns only max dev of forces for dptools compatability
 
     def sample(self, lo=0.05, hi=0.35, n=300):
         """
